@@ -1,4 +1,6 @@
-﻿namespace GlobalErrorHandler;
+﻿using Newtonsoft.Json.Linq;
+
+namespace GlobalErrorHandler;
 
 public static class ErrorHandlerExtensions
 {
@@ -112,14 +114,14 @@ public class ErrorHandlerMiddleware(RequestDelegate next,
             var body = await reader.ReadToEndAsync(cancellationToken);
 
             // Store the body in the RequestData object
-            requestData.Body = body;
+            requestData.Body = JsonConvert.DeserializeObject<JObject>(body) ?? new();
 
             // Rewind the stream so it can be read later by other middleware
             context.Request.Body.Seek(0, SeekOrigin.Begin);
         }
 
         // Now you can use requestData as needed
-        var data = JsonConvert.SerializeObject(requestData);
+        var data = JsonConvert.SerializeObject(requestData, Formatting.Indented);
         return Encoding.UTF8.GetBytes(data);
     }
 }

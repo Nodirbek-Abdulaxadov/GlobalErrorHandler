@@ -5,6 +5,8 @@ VisualStudioVersion = 17.9.34728.123
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GlobalErrorHandler", "GlobalErrorHandler\GlobalErrorHandler.csproj", "{BEEC249D-3802-456A-B8F2-A36CDF659176}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WepApplication1", "WepApplication1\WepApplication1.csproj", "{DA47A95C-4DCA-410D-8AC7-C03C2CF27E03}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{BEEC249D-3802-456A-B8F2-A36CDF659176}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BEEC249D-3802-456A-B8F2-A36CDF659176}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BEEC249D-3802-456A-B8F2-A36CDF659176}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DA47A95C-4DCA-410D-8AC7-C03C2CF27E03}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DA47A95C-4DCA-410D-8AC7-C03C2CF27E03}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DA47A95C-4DCA-410D-8AC7-C03C2CF27E03}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DA47A95C-4DCA-410D-8AC7-C03C2CF27E03}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

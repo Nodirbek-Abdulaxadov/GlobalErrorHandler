@@ -8,45 +8,36 @@ public static class ErrorHandlerExtensions
     }
 }
 
-public class ErrorHandlerMiddleware
-{
-    private readonly RequestDelegate _next;
-    private readonly ILogger<ErrorHandlerMiddleware> _logger;
-    private readonly ILoggerService _loggerService;
-
-    public ErrorHandlerMiddleware(RequestDelegate next,
+public class ErrorHandlerMiddleware(RequestDelegate next,
                                   ILogger<ErrorHandlerMiddleware> logger,
                                   ILoggerService loggerService)
-    {
-        _next = next;
-        _logger = logger;
-        _loggerService = loggerService;
-    }
-
+{
     public async Task Invoke(HttpContext context)
     {
+        CancellationTokenSource cts = new();
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
-            await _next(context);
+            await next(context);
         }
         catch (NotFoundException ex)
         {
-            await HandleExceptionAsync(ex, 404, context);
+            await HandleExceptionAsync(ex, 404, context, cts.Token);
             return;
         }
         catch (BadRequestException ex)
         {
-            await HandleExceptionAsync(ex, 400, context);
+            await HandleExceptionAsync(ex, 400, context, cts.Token);
             return;
         }
         catch (Exception ex)
         {
-            await HandleExceptionAsync(ex, 500, context);
+            await HandleExceptionAsync(ex, 500, context, cts.Token);
             return;
         }
     }
 
-    public async Task HandleExceptionAsync(Exception ex, int statusCode, HttpContext context)
+    public async Task HandleExceptionAsync(Exception ex, int statusCode, HttpContext context, CancellationToken cancellationToken = default)
     {
         #region Request informations
         var request = context.Request;
@@ -86,7 +77,8 @@ public class ErrorHandlerMiddleware
         📡Request
         {builder}
         """;
-        await _loggerService.ErrorAsync(message);
+        var requestData = await CollectRequestDataAsync(context, cancellationToken);
+        await loggerService.ErrorAsync(message, requestData, cancellationToken);
         #endregion
 
         #region response
@@ -95,8 +87,39 @@ public class ErrorHandlerMiddleware
         var httpResponseException = new HttpResponseModel(status: statusCode, message: ex.Message, name: ex.GetType().Name);
         var result = JsonConvert.SerializeObject(httpResponseException);
 
-        _logger.LogError(ex, ex.Message);
-        await context.Response.WriteAsync(result);
+        logger.LogError(ex, ex.Message);
+        await context.Response.WriteAsync(result, cancellationToken);
         #endregion
+    }
+
+    public async Task<byte[]> CollectRequestDataAsync(HttpContext context, CancellationToken cancellationToken = default)
+    {
+        // Allow the request body to be re-read
+        context.Request.EnableBuffering();
+
+        var requestData = new RequestData
+        {
+            Method = context.Request.Method,
+            Path = context.Request.Path,
+            Headers = context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString()),
+            QueryString = context.Request.QueryString.ToString()
+        };
+
+        // Read the request body if it exists
+        if (context.Request.ContentLength > 0)
+        {
+            using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
+            var body = await reader.ReadToEndAsync(cancellationToken);
+
+            // Store the body in the RequestData object
+            requestData.Body = body;
+
+            // Rewind the stream so it can be read later by other middleware
+            context.Request.Body.Seek(0, SeekOrigin.Begin);
+        }
+
+        // Now you can use requestData as needed
+        var data = JsonConvert.SerializeObject(requestData);
+        return Encoding.UTF8.GetBytes(data);
     }
 }

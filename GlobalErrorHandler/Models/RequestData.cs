@@ -1,6 +1,4 @@
-﻿using Newtonsoft.Json.Linq;
-
-namespace GlobalErrorHandler.Models;
+﻿namespace GlobalErrorHandler.Models;
 
 public class RequestData
 {
@@ -9,4 +7,5 @@ public class RequestData
     public IDictionary<string, string> Headers { get; set; } = null!;
     public string QueryString { get; set; } = string.Empty;
     public JObject? Body { get; set; }
+    public string ExceptionDetails { get; set; } = string.Empty;
 }

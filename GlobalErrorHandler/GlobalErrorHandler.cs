@@ -1,4 +1,7 @@
-﻿namespace GlobalErrorHandler;
+using Microsoft.Extensions.Hosting;
+using System.Text;
+
+namespace GlobalErrorHandler;
 
 public static class ErrorHandlerExtensions
 {
@@ -8,10 +11,24 @@ public static class ErrorHandlerExtensions
     }
 }
 
-public class ErrorHandlerMiddleware(RequestDelegate next,
-                                  ILogger<ErrorHandlerMiddleware> logger,
-                                  ILoggerService loggerService)
+public class ErrorHandlerMiddleware
 {
+    private readonly RequestDelegate next;
+    private readonly ILogger<ErrorHandlerMiddleware> logger;
+    private readonly ILoggerService loggerService;
+    private readonly IHostEnvironment hostEnvironment;
+
+    public ErrorHandlerMiddleware(RequestDelegate next,
+                                  ILogger<ErrorHandlerMiddleware> logger,
+                                  ILoggerService loggerService,
+                                  IHostEnvironment hostEnvironment)
+    {
+        this.next = next;
+        this.logger = logger;
+        this.loggerService = loggerService;
+        this.hostEnvironment = hostEnvironment;
+    }
+
     public async Task Invoke(HttpContext context)
     {
         CancellationTokenSource cts = new();
@@ -67,13 +84,12 @@ public class ErrorHandlerMiddleware(RequestDelegate next,
         #endregion
 
         #region Log to telegram
-        string source = ex.StackTrace?.Split("\n")[0] ?? "";
-        string message = $"""
+        var env = hostEnvironment.EnvironmentName;
+        string message = @$"
         🛑{ex.GetType().Name}: {ex.Message} {(ex.InnerException != null ? "" : ex.InnerException?.Message)}
 
-        📡Request
-        {builder}
-        """;
+        🪙 Environment: {env}
+        ";
         var requestData = await CollectRequestDataAsync(context, ex, cancellationToken);
         await loggerService.ErrorAttachmentAsync(message, requestData, null, cancellationToken);
         #endregion
@@ -91,7 +107,6 @@ public class ErrorHandlerMiddleware(RequestDelegate next,
 
     private static async Task<byte[]> CollectRequestDataAsync(HttpContext context, Exception exception, CancellationToken cancellationToken = default)
     {
-        // Allow the request body to be re-read
         context.Request.EnableBuffering();
 
         var requestData = new RequestData
@@ -100,24 +115,34 @@ public class ErrorHandlerMiddleware(RequestDelegate next,
             Path = context.Request.Path,
             Headers = context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString()),
             QueryString = context.Request.QueryString.ToString(),
-            ExceptionDetails = GetFullExceptionDetails(exception)
+            ExceptionDetails = GetFullExceptionDetails(exception).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
         };
 
-        // Read the request body if it exists
-        if (context.Request.ContentLength > 0)
+        if (context.Request.Body.CanRead)
         {
+            context.Request.Body.Seek(0, SeekOrigin.Begin); // rewind before reading
             using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
-            var body = await reader.ReadToEndAsync(cancellationToken);
 
-            // Store the body in the RequestData object
-            requestData.Body = JsonConvert.DeserializeObject<JObject>(body) ?? new();
+            string body = await reader.ReadToEndAsync();
 
-            // Rewind the stream so it can be read later by other middleware
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                try
+                {
+                    requestData.Body = JsonConvert.DeserializeObject<JObject>(body) ?? new JObject();
+                }
+                catch
+                {
+                    // Fallback if body isn’t JSON
+                    requestData.Body = new JObject { ["raw"] = body };
+                }
+            }
+
+            // rewind again so later middleware can still read it
             context.Request.Body.Seek(0, SeekOrigin.Begin);
         }
 
-        // Now you can use requestData as needed
-        var data = JsonConvert.SerializeObject(requestData, Formatting.Indented);
+        string data = JsonConvert.SerializeObject(requestData, Formatting.Indented);
         return Encoding.UTF8.GetBytes(data);
     }
 

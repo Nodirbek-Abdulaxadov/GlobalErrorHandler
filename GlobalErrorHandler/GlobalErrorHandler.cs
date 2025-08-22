@@ -17,6 +17,7 @@ public class ErrorHandlerMiddleware
     private readonly ILogger<ErrorHandlerMiddleware> logger;
     private readonly ILoggerService loggerService;
     private readonly IHostEnvironment hostEnvironment;
+    private static JObject? requestBody = null;
 
     public ErrorHandlerMiddleware(RequestDelegate next,
                                   ILogger<ErrorHandlerMiddleware> logger,
@@ -35,6 +36,7 @@ public class ErrorHandlerMiddleware
         cts.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
+            requestBody = await ReadRequestBodyAsync(context.Request, cts.Token);
             await next(context);
         }
         catch (NotFoundException ex)
@@ -85,12 +87,12 @@ public class ErrorHandlerMiddleware
 
         #region Log to telegram
         var env = hostEnvironment.EnvironmentName;
-        string message = @$"
-🛑{ex.GetType().Name}: {ex.Message} {(ex.InnerException != null ? "" : ex.InnerException?.Message)}
+        string message = 
+@$"🛑`{ex.GetType().Name}: {ex.Message} {(ex.InnerException != null ? "" : ex.InnerException?.Message)}`
 
-🪙 Environment: {env}
+🌐 Environment: *{env}*
         ";
-        var requestData = await CollectRequestDataAsync(context, ex, cancellationToken);
+        var requestData = CollectRequestData(context, ex, cancellationToken);
         await loggerService.ErrorAttachmentAsync(message, requestData, null, cancellationToken);
         #endregion
 
@@ -105,7 +107,7 @@ public class ErrorHandlerMiddleware
         #endregion
     }
 
-    private static async Task<byte[]> CollectRequestDataAsync(HttpContext context, Exception exception, CancellationToken cancellationToken = default)
+    private static byte[] CollectRequestData(HttpContext context, Exception exception, CancellationToken cancellationToken = default)
     {
         context.Request.EnableBuffering();
 
@@ -118,32 +120,37 @@ public class ErrorHandlerMiddleware
             ExceptionDetails = GetFullExceptionDetails(exception).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
         };
 
-        if (context.Request.Body.CanRead)
-        {
-            context.Request.Body.Seek(0, SeekOrigin.Begin); // rewind before reading
-            using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
-
-            string body = await reader.ReadToEndAsync();
-
-            if (!string.IsNullOrWhiteSpace(body))
-            {
-                try
-                {
-                    requestData.Body = JsonConvert.DeserializeObject<JObject>(body) ?? new JObject();
-                }
-                catch
-                {
-                    // Fallback if body isn’t JSON
-                    requestData.Body = new JObject { ["raw"] = body };
-                }
-            }
-
-            // rewind again so later middleware can still read it
-            context.Request.Body.Seek(0, SeekOrigin.Begin);
-        }
+        requestData.Body = requestBody;
 
         string data = JsonConvert.SerializeObject(requestData, Formatting.Indented);
         return Encoding.UTF8.GetBytes(data);
+    }
+
+    private static async Task<JObject?> ReadRequestBodyAsync(HttpRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!request.Body.CanRead)
+            return null;
+
+        request.EnableBuffering();
+        request.Body.Seek(0, SeekOrigin.Begin);
+
+        using var reader = new StreamReader(request.Body, Encoding.UTF8, leaveOpen: true);
+        var body = await reader.ReadToEndAsync();
+
+        request.Body.Seek(0, SeekOrigin.Begin); // rewind again
+
+        if (string.IsNullOrWhiteSpace(body))
+            return null;
+
+        try
+        {
+            return JsonConvert.DeserializeObject<JObject>(body) ?? new JObject();
+        }
+        catch
+        {
+            // fallback: raw string if not JSON
+            return new JObject { ["raw"] = body };
+        }
     }
 
     private static string GetFullExceptionDetails(Exception ex)

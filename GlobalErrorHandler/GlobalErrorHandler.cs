@@ -86,9 +86,9 @@ public class ErrorHandlerMiddleware
         #region Log to telegram
         var env = hostEnvironment.EnvironmentName;
         string message = @$"
-        🛑{ex.GetType().Name}: {ex.Message} {(ex.InnerException != null ? "" : ex.InnerException?.Message)}
+🛑{ex.GetType().Name}: {ex.Message} {(ex.InnerException != null ? "" : ex.InnerException?.Message)}
 
-        🪙 Environment: {env}
+🪙 Environment: {env}
         ";
         var requestData = await CollectRequestDataAsync(context, ex, cancellationToken);
         await loggerService.ErrorAttachmentAsync(message, requestData, null, cancellationToken);

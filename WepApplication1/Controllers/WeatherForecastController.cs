@@ -1,3 +1,4 @@
+using GlobalErrorHandler.Exceptions;
 using Microsoft.AspNetCore.Mvc;
 
 namespace WepApplication1.Controllers
@@ -39,7 +40,7 @@ namespace WepApplication1.Controllers
         [HttpPost("GetException")]
         public IEnumerable<WeatherForecast> GetExceptionPost()
         {
-            throw new InvalidOperationException("This is an exception");
+            throw new CustomException("This is an exception");
         }
     }
 }

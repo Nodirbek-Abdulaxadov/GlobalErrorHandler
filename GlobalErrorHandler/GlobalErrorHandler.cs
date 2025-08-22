@@ -49,9 +49,17 @@ public class ErrorHandlerMiddleware
             await HandleExceptionAsync(ex, 400, context, cts.Token);
             return;
         }
+
         catch (Exception ex)
         {
-            await HandleExceptionAsync(ex, 500, context, cts.Token);
+            if (ExceptionHandler.TryGetStatusCode(ex, out int statusCode))
+            {
+                await HandleExceptionAsync(ex, statusCode, context, cts.Token);
+            }
+            else
+            {
+                await HandleExceptionAsync(ex, 500, context, cts.Token);
+            }
             return;
         }
     }

@@ -1,4 +1,4 @@
-﻿global using System.Text.Json.Serialization;
+global using System.Text.Json.Serialization;
 global using GlobalErrorHandler.Exceptions;
 global using LoggerBot.Services;
 global using System.Text;
@@ -8,3 +8,4 @@ global using Microsoft.AspNetCore.Builder;
 global using Microsoft.AspNetCore.Http;
 global using Microsoft.Extensions.Logging;
 global using Newtonsoft.Json.Linq;
+global using System.Net;

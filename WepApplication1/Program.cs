@@ -1,5 +1,8 @@
 using GlobalErrorHandler;
+using GlobalErrorHandler.Exceptions;
 using LoggerBot;
+using System.Net;
+using WepApplication1;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +13,7 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
 builder.Services.AddLoggerBot();
+ExceptionHandler.Register<CustomException>(HttpStatusCode.InternalServerError);
 
 var app = builder.Build();
 

@@ -6,7 +6,7 @@ namespace GlobalErrorHandler;
 /// Pluggable destination for error reports produced by <see cref="ErrorHandlerMiddleware"/>.
 /// Implementations are resolved through DI — register one via <c>AddGlobalErrorHandler()</c>
 /// (defaults to <see cref="NullErrorHandlerSink"/>) or call <c>AddLoggerBotSink()</c>
-/// from the <c>GlobalErrorHandler.LoggerBot</c> package.
+/// to publish through LoggerBot (Telegram).
 /// </summary>
 public interface IErrorHandlerSink
 {

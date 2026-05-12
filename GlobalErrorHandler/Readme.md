@@ -4,14 +4,12 @@
 
 The GlobalErrorHandler NuGet package provides middleware and extension methods to handle and log exceptions globally in ASP.NET Core applications. It includes an `ErrorHandlerMiddleware` to catch exceptions and an extension method `UseErrorHandler` to easily integrate the middleware into the application pipeline.
 
-Reports are published through a pluggable `IErrorHandlerSink` so the core package no longer hard-depends on LoggerBot. Telegram support lives in the optional `GlobalErrorHandler.LoggerBot` package.
+Reports are published through a pluggable `IErrorHandlerSink`. By default a `NullErrorHandlerSink` is registered (no transport). Telegram delivery via LoggerBot is shipped in the same package and is opt-in through `AddLoggerBotSink()`.
 
 ## Installation
 
 ```bash
 dotnet add package GlobalErrorHandler
-# Optional, for Telegram delivery via LoggerBot:
-dotnet add package GlobalErrorHandler.LoggerBot
 ```
 
 ## Usage
@@ -19,14 +17,9 @@ dotnet add package GlobalErrorHandler.LoggerBot
 ```csharp
 using GlobalErrorHandler;
 
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddGlobalErrorHandler();
-
-var app = builder.Build();
+services.AddGlobalErrorHandler();     // default = NullErrorHandlerSink (no Telegram)
+services.AddLoggerBotSink();          // optional — opts into Telegram delivery via LoggerBot
 app.UseErrorHandler();
-app.MapControllers();
-app.Run();
 ```
 
 ## Customization
@@ -41,11 +34,8 @@ Built-in defaults: `BadRequestException → 400`, `NotFoundException → 404`, `
 
 ### Send reports to Telegram (LoggerBot)
 
-Add the optional package and call `AddLoggerBotSink()`:
-
 ```csharp
 using GlobalErrorHandler;
-using GlobalErrorHandler.LoggerBotIntegration;
 
 builder.Services.AddGlobalErrorHandler();
 builder.Services.AddLoggerBotSink();

@@ -5,6 +5,11 @@ namespace GlobalErrorHandler;
 
 public static class ErrorHandlerExtensions
 {
+    /// <summary>
+    /// Adds <see cref="ErrorHandlerMiddleware"/> to the pipeline. Make sure to also call
+    /// <c>services.AddGlobalErrorHandler()</c> so the required <see cref="IErrorHandlerSink"/>
+    /// is registered (defaults to a no-op sink).
+    /// </summary>
     public static IApplicationBuilder UseErrorHandler(this IApplicationBuilder builder)
     {
         return builder.UseMiddleware<ErrorHandlerMiddleware>();
@@ -15,56 +20,55 @@ public class ErrorHandlerMiddleware
 {
     private readonly RequestDelegate next;
     private readonly ILogger<ErrorHandlerMiddleware> logger;
-    private readonly ILoggerService loggerService;
+    private readonly IErrorHandlerSink sink;
     private readonly IHostEnvironment hostEnvironment;
-    private static JObject? requestBody = null;
 
+    /// <summary>
+    /// Preferred constructor (v2.1.0+). Errors are published via the registered
+    /// <see cref="IErrorHandlerSink"/>.
+    /// </summary>
     public ErrorHandlerMiddleware(RequestDelegate next,
                                   ILogger<ErrorHandlerMiddleware> logger,
-                                  ILoggerService loggerService,
+                                  IErrorHandlerSink sink,
                                   IHostEnvironment hostEnvironment)
     {
         this.next = next;
         this.logger = logger;
-        this.loggerService = loggerService;
+        this.sink = sink;
         this.hostEnvironment = hostEnvironment;
     }
 
     public async Task Invoke(HttpContext context)
     {
-        CancellationTokenSource cts = new();
+        using var cts = new CancellationTokenSource();
         cts.CancelAfter(TimeSpan.FromSeconds(10));
+
+        // Read request body up-front (instance-local — not shared across requests).
+        JObject? requestBody = null;
         try
         {
             requestBody = await ReadRequestBodyAsync(context.Request, cts.Token);
             await next(context);
         }
-        catch (NotFoundException ex)
-        {
-            await HandleExceptionAsync(ex, 404, context, cts.Token);
-            return;
-        }
-        catch (BadRequestException ex)
-        {
-            await HandleExceptionAsync(ex, 400, context, cts.Token);
-            return;
-        }
-
         catch (Exception ex)
         {
-            if (ExceptionHandler.TryGetStatusCode(ex, out int statusCode))
-            {
-                await HandleExceptionAsync(ex, statusCode, context, cts.Token);
-            }
-            else
-            {
-                await HandleExceptionAsync(ex, 500, context, cts.Token);
-            }
-            return;
+            // Route every exception through the registry. Defaults for built-in
+            // exception types (BadRequest=400, NotFound=404, PermissionDenied=403)
+            // are seeded in ExceptionHandler's static ctor and can be overridden.
+            int statusCode = ExceptionHandler.TryGetStatusCode(ex, out int mapped) ? mapped : 500;
+            await HandleExceptionAsync(ex, statusCode, context, requestBody, cts.Token);
         }
     }
 
-    public async Task HandleExceptionAsync(Exception ex, int statusCode, HttpContext context, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Build the report and publish it through the registered <see cref="IErrorHandlerSink"/>.
+    /// </summary>
+    public async Task HandleExceptionAsync(
+        Exception ex,
+        int statusCode,
+        HttpContext context,
+        JObject? requestBody,
+        CancellationToken cancellationToken = default)
     {
         #region Request informations
         var request = context.Request;
@@ -93,15 +97,28 @@ public class ErrorHandlerMiddleware
         builder.AppendLine($"User Agent: {request.Headers["User-Agent"]}");
         #endregion
 
-        #region Log to telegram
+        #region Build report
         var env = hostEnvironment.EnvironmentName;
-        string message = 
-@$"🛑`{ex.GetType().Name}: {ex.Message} {(ex.InnerException != null ? "" : ex.InnerException?.Message)}`
+        // Inverted from the original: append InnerException.Message when it is non-null,
+        // not when it is null (the previous condition was reversed).
+        string innerMsg = ex.InnerException != null ? ex.InnerException.Message : "";
+        string title =
+@$"🛑`{ex.GetType().Name}: {ex.Message} {innerMsg}`
 
 🌐 Environment: *{env}*
         ";
-        var requestData = CollectRequestData(context, ex, cancellationToken);
-        await loggerService.ErrorAttachmentAsync(message, requestData, null, cancellationToken);
+
+        var requestData = CollectRequestData(context, ex, requestBody);
+
+        try
+        {
+            await sink.PublishAsync(title, ex, requestData, cancellationToken);
+        }
+        catch (Exception sinkEx)
+        {
+            // Never let a logging sink failure take down the response path.
+            logger.LogError(sinkEx, "IErrorHandlerSink failed to publish error report.");
+        }
         #endregion
 
         #region response
@@ -115,7 +132,16 @@ public class ErrorHandlerMiddleware
         #endregion
     }
 
-    private static byte[] CollectRequestData(HttpContext context, Exception exception, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Legacy entry point kept for binary compatibility with v2.0.x. Prefer the overload
+    /// that takes the captured request body — this version cannot include the request
+    /// payload in the report.
+    /// </summary>
+    [Obsolete("Use HandleExceptionAsync(ex, statusCode, context, requestBody, ct) so the body is captured per-request. This overload will be removed in v3.0.0.", error: false)]
+    public Task HandleExceptionAsync(Exception ex, int statusCode, HttpContext context, CancellationToken cancellationToken = default)
+        => HandleExceptionAsync(ex, statusCode, context, (JObject?)null, cancellationToken);
+
+    private static RequestData CollectRequestData(HttpContext context, Exception exception, JObject? requestBody)
     {
         context.Request.EnableBuffering();
 
@@ -125,13 +151,11 @@ public class ErrorHandlerMiddleware
             Path = context.Request.Path,
             Headers = context.Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString()),
             QueryString = context.Request.QueryString.ToString(),
-            ExceptionDetails = GetFullExceptionDetails(exception).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
+            ExceptionDetails = GetFullExceptionDetails(exception).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None),
+            Body = requestBody
         };
 
-        requestData.Body = requestBody;
-
-        string data = JsonConvert.SerializeObject(requestData, Formatting.Indented);
-        return Encoding.UTF8.GetBytes(data);
+        return requestData;
     }
 
     private static async Task<JObject?> ReadRequestBodyAsync(HttpRequest request, CancellationToken cancellationToken = default)
@@ -143,7 +167,11 @@ public class ErrorHandlerMiddleware
         request.Body.Seek(0, SeekOrigin.Begin);
 
         using var reader = new StreamReader(request.Body, Encoding.UTF8, leaveOpen: true);
+#if NET7_0_OR_GREATER
+        var body = await reader.ReadToEndAsync(cancellationToken);
+#else
         var body = await reader.ReadToEndAsync();
+#endif
 
         request.Body.Seek(0, SeekOrigin.Begin); // rewind again
 

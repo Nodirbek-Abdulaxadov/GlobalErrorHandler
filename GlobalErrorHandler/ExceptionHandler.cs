@@ -1,11 +1,22 @@
+using System.Collections.Concurrent;
+using GlobalErrorHandler.Exceptions;
+
 namespace GlobalErrorHandler;
 
 public static class ExceptionHandler
 {
-    private static readonly Dictionary<Type, int> _exceptionMappings = new();
+    private static readonly ConcurrentDictionary<Type, int> _exceptionMappings = new();
+
+    static ExceptionHandler()
+    {
+        // Default mappings — can be overridden via Register<T>(...)
+        _exceptionMappings[typeof(BadRequestException)] = 400;
+        _exceptionMappings[typeof(NotFoundException)] = 404;
+        _exceptionMappings[typeof(PermissionDeniedException)] = 403;
+    }
 
     /// <summary>
-    /// Add custom exception mapping
+    /// Add (or replace) custom exception mapping.
     /// </summary>
     public static void Register<TException>(HttpStatusCode statusCode) where TException : Exception
     {
@@ -13,7 +24,7 @@ public static class ExceptionHandler
     }
 
     /// <summary>
-    /// Add custom exception mapping
+    /// Add (or replace) custom exception mapping.
     /// </summary>
     public static void Register<TException>(int statusCode) where TException : Exception
     {
@@ -21,7 +32,7 @@ public static class ExceptionHandler
     }
 
     /// <summary>
-    /// Try to get status code for given exception
+    /// Try to get status code for given exception. Returns false (with 500 default) if not mapped.
     /// </summary>
     public static bool TryGetStatusCode(Exception ex, out int statusCode)
     {
